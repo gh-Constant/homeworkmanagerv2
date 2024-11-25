@@ -44,14 +44,16 @@ export function RegisterForm() {
             </div>
             <div>
               <input
-                type="password"
+                type="text"
                 required
+                pattern="[0-9]{4}"
+                maxLength={4}
+                autoComplete="new-password"
+                inputMode="numeric"
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 placeholder="Code PIN (4 chiffres)"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                maxLength={4}
-                pattern="[0-9]{4}"
               />
             </div>
             {!isLogin && (

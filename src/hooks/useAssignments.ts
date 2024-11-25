@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Assignment, User } from '../types';
 import toast from 'react-hot-toast';
+import Cookies from 'js-cookie';
 
 export function useAssignments(user: User | null) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -55,11 +56,11 @@ export function useAssignments(user: User | null) {
 
   const createAssignment = async (assignment: Partial<Assignment>) => {
     try {
-      // Get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       
-      if (sessionError || !session) {
-        throw new Error('Not authenticated');
+      if (!session) {
+        toast.error('Veuillez vous reconnecter');
+        return;
       }
 
       const newAssignment = {
@@ -70,9 +71,11 @@ export function useAssignments(user: User | null) {
         target_type: assignment.target_type,
         target_groups: assignment.target_groups || [],
         target_users: assignment.target_users || [],
-        created_by: session.user.id, // Use the authenticated user's ID
+        created_by: user?.id,
         completed: false
       };
+
+      console.log('Creating assignment:', newAssignment); // Debug log
 
       const { data, error } = await supabase
         .from('assignments')
@@ -83,9 +86,11 @@ export function useAssignments(user: User | null) {
         `)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
-      // Format the assignment for the frontend
       const formattedAssignment: Assignment = {
         id: data.id,
         title: data.title,

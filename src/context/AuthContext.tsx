@@ -20,25 +20,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    const user = Cookies.get('user');
-    if (user) {
-      setState(prev => ({ ...prev, user: JSON.parse(user), loading: false }));
-    } else {
-      setState(prev => ({ ...prev, loading: false }));
-    }
+    // Check for existing session on mount
+    checkSession();
   }, []);
+
+  const checkSession = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        
+        setState({ user, loading: false, error: null });
+      } else {
+        setState({ user: null, loading: false, error: null });
+      }
+    } catch (error) {
+      console.error('Session check error:', error);
+      setState({ user: null, loading: false, error: 'Session check failed' });
+    }
+  };
 
   const login = async (username: string, pin: string) => {
     try {
-      // First, authenticate with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      const securePassword = `${pin}${pin}${pin}`;
+
+      const { data: { user: authUser }, error: signInError } = await supabase.auth.signInWithPassword({
         email: `${username}@example.com`,
-        password: pin
+        password: securePassword
       });
 
-      if (authError) throw authError;
+      if (signInError) throw signInError;
 
-      // Then get the user data
       const { data: user, error: userError } = await supabase
         .from('users')
         .select('*')
@@ -46,40 +62,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (userError) throw userError;
-      if (!user) throw new Error('Invalid credentials');
 
-      // Store user in state and cookies
       setState({ user, loading: false, error: null });
-      Cookies.set('user', JSON.stringify(user));
       toast.success('Connexion réussie !');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      toast.error('Identifiants invalides');
+      if (error.message?.includes('Too Many Requests')) {
+        toast.error('Veuillez patienter quelques secondes avant de réessayer');
+      } else {
+        toast.error('Identifiants invalides');
+      }
       setState(prev => ({ ...prev, error: 'Identifiants invalides' }));
     }
   };
 
   const logout = async () => {
-    Cookies.remove('user');
+    await supabase.auth.signOut();
     setState({ user: null, loading: false, error: null });
     toast.success('Déconnexion réussie');
   };
 
   const register = async (username: string, pin: string, category: string) => {
     try {
-      // First create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: `${username}@example.com`,
-        password: pin
-      });
+      const securePassword = `${pin}${pin}${pin}`;
 
-      if (authError) throw authError;
-
-      // Then create the user profile
+      // Create user in the database first
       const { data: user, error: userError } = await supabase
         .from('users')
         .insert([{ 
-          id: authData.user?.id, // Use the auth user's ID
           username, 
           pin, 
           category,
@@ -90,11 +100,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (userError) throw userError;
 
+      // Then create auth user and sign in
+      const { data: { session }, error: authError } = await supabase.auth.signUp({
+        email: `${username}@example.com`,
+        password: securePassword,
+        options: {
+          data: {
+            id: user.id,
+            username,
+            category
+          }
+        }
+      });
+
+      if (authError) {
+        // Rollback user creation if auth fails
+        await supabase
+          .from('users')
+          .delete()
+          .eq('id', user.id);
+        throw authError;
+      }
+
+      if (!session) {
+        throw new Error('No session created');
+      }
+
+      setState({ user, loading: false, error: null });
       toast.success('Inscription réussie !');
-      await login(username, pin);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Registration error:', error);
-      toast.error("L'inscription a échoué. Veuillez réessayer.");
+      if (error.message?.includes('Too Many Requests')) {
+        toast.error('Veuillez patienter quelques secondes avant de réessayer');
+      } else {
+        toast.error("L'inscription a échoué. Veuillez réessayer.");
+      }
       setState(prev => ({ ...prev, error: "L'inscription a échoué" }));
     }
   };
